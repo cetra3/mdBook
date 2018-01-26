@@ -58,8 +58,8 @@ impl HtmlHandlebars {
                     .to_str()
                     .chain_err(|| "Could not convert path to str")?;
                 let filepath = Path::new(&ch.path)
-                    .with_extension("html")
-                    .to_str()
+                    .with_extension("html");
+                let filepath = filepath.to_str()
                     .chain_err(|| "Could not convert HTML path to str")?;
 
                 // "print.html" is used for the print page.
@@ -335,11 +335,11 @@ impl Renderer for HtmlHandlebars {
                 is_index: is_index,
                 html_config: html_config.clone(),
             };
-            self.render_item(item,
-                             ctx,
-                             &mut print_content,
-                             &mut search_documents,
-                             depthfirstiterator.collect_current_parents_names())?;
+            // self.render_item(item,
+            //                  ctx,
+            //                  &mut print_content,
+            //                  &mut search_documents,
+            //                  depthfirstiterator.collect_current_parents_names())?;
             is_index = false;
         }
 
