@@ -554,6 +554,7 @@ var search = (function search() {
         searchresults_header = document.getElementById('searchresults-header'),
         searchicon = document.getElementById('search-toggle'),
         content = document.getElementById('content'),
+        menu_title = document.getElementById('menu-title'),
 
         searchindex = null,
         searchoptions = {
@@ -888,13 +889,19 @@ var search = (function search() {
         }
     }
     
-    // Eventhandler for search icon
-    function searchIconClickHandler() {
-        if (searchbar_outer.style.display === 'none') {
+    function showSearchBar(yes) {
+        if (yes) {
             searchbar_outer.style.display = 'block';
+            menu_title.style.display = 'none';
         } else {
             searchbar_outer.style.display = 'none';
+            menu_title.style.display = 'block';
         }
+    }
+
+    // Eventhandler for search icon
+    function searchIconClickHandler() {
+        showSearchBar(searchbar_outer.style.display === 'none');
         searchbar.focus();
     }
     
