@@ -8,6 +8,7 @@ use errors::*;
 use regex::{Captures, Regex};
 
 #[allow(unused_imports)] use std::ascii::AsciiExt;
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -43,8 +44,7 @@ impl HtmlHandlebars {
         item: &BookItem,
         mut ctx: RenderItemContext,
         print_content: &mut String,
-        search_documents: &mut Vec<utils::SearchDocument>,
-        mut parents_names: Vec<String>
+        search_index: &mut Option<elasticlunr::Index>,
     ) -> Result<()> {
         // FIXME: This should be made DRY-er and rely less on mutable state
         match *item {
@@ -67,19 +67,10 @@ impl HtmlHandlebars {
                     bail!(ErrorKind::ReservedFilenameError(ch.path.clone()));
                 };
 
-                if !parents_names.last()
-                    .map(String::as_ref)
-                    .unwrap_or("")
-                    .eq_ignore_ascii_case(&ch.name) {
-                    parents_names.push(ch.name.clone());
+                // Add page content to search index
+                if let Some(ref mut index) = *search_index {
+                    add_chapter_to_searchindex(&ctx.html_config.search, &ch, &filepath, index);
                 }
-                utils::render_markdown_into_searchindex(
-                    &ctx.html_config.search,
-                    search_documents,
-                    &content,
-                    filepath,
-                    parents_names,
-                    id_from_content);
 
                 // Non-lexical lifetimes needed :'(
                 let title: String;
@@ -320,7 +311,10 @@ impl Renderer for HtmlHandlebars {
         let mut print_content = String::new();
 
         // Search index
-        let mut search_documents = vec![];
+        let mut search_index = None;
+        if html_config.search.enable {
+            search_index = Some(elasticlunr::Index::new(&["title", "body", "breadcrumbs"]));
+        }
 
         fs::create_dir_all(&destination)
             .chain_err(|| "Unexpected error when constructing destination path")?;
@@ -335,16 +329,17 @@ impl Renderer for HtmlHandlebars {
                 is_index: is_index,
                 html_config: html_config.clone(),
             };
-            // self.render_item(item,
-            //                  ctx,
-            //                  &mut print_content,
-            //                  &mut search_documents,
-            //                  depthfirstiterator.collect_current_parents_names())?;
+            self.render_item(item,
+                             ctx,
+                             &mut print_content,
+                             &mut search_index)?;
             is_index = false;
         }
 
-        // Search index (call this even if searching is disabled)
-        make_searchindex(ctx, search_documents, &html_config.search)?;
+        // Search index
+        if let Some(index) = search_index {
+            write_searchindex_to_json(ctx, &html_config.search, index)?;
+        }
 
         // Print version
         self.configure_print_version(&mut data, &print_content);
@@ -585,8 +580,7 @@ fn fix_code_blocks(html: &str) -> String {
                 before = before,
                 classes = classes,
                 after = after)
-    })
-         .into_owned()
+    }).into_owned()
 }
 
 fn add_playpen_pre(html: &str, playpen_config: &Playpen) -> String {
@@ -673,10 +667,76 @@ pub fn normalize_id(content: &str) -> String {
            .collect::<String>()
 }
 
+/// Renders markdown into flat unformatted text for usage in the search index.
+pub fn add_chapter_to_searchindex(
+    searchconfig: &Search,
+    chapter: &Chapter,
+    anchor_base: &str,
+    index: &mut elasticlunr::Index,
+) {
+    use pulldown_cmark::*;
+
+    let mut opts = Options::empty();
+    opts.insert(OPTION_ENABLE_TABLES);
+    opts.insert(OPTION_ENABLE_FOOTNOTES);
+    let p = Parser::new_ext(&chapter.content, opts);
+
+    let mut in_header = false;
+    let max_paragraph_level = searchconfig.split_until_heading as i32;
+    let mut paragraph_id = None;
+    let mut heading = String::new();
+    let mut body = String::new();
+    let mut breadcrumbs = chapter.parent_names.clone();
+
+    for event in p {
+        match event {
+            Event::Start(Tag::Header(i)) if i <= max_paragraph_level => {
+                if heading.len() > 0 {
+                    // Paragraph finished, the next header is following now
+                    // Write the data to the index, and clear it for the next paragraph
+                    let doc_ref = if let Some(id) = paragraph_id {
+                        Cow::Owned(format!("{}#{}", anchor_base, id))
+                    } else {
+                        Cow::Borrowed(anchor_base)
+                    };
+                    index.add_doc(&doc_ref, &[&heading, &body, &breadcrumbs.join(" » ")]);
+                    paragraph_id = None;
+                    heading.clear();
+                    body.clear();
+                    breadcrumbs.pop();
+                }
+
+                in_header = true;
+            }
+            Event::End(Tag::Header(i)) if i <= max_paragraph_level => {
+                in_header = false;
+                paragraph_id = Some(id_from_content(&heading));
+
+                breadcrumbs.push(heading.clone());
+            }
+            Event::Start(_) | Event::End(_) => {}
+            Event::Text(text) => {
+                if in_header {
+                    heading.push_str(&text);
+                } else {
+                    body.push_str(&text);
+                }
+            }
+            Event::Html(html) | Event::InlineHtml(html) => {
+                body.push_str(&utils::remove_html_tags(&html));
+            }
+            Event::FootnoteReference(_) => {}
+            Event::SoftBreak | Event::HardBreak => {}
+        }
+    }
+}
+
 /// Uses elasticlunr to create a search index and exports that into `searchindex.json`.
-fn make_searchindex(ctx: &RenderContext,
-                    search_documents: Vec<utils::SearchDocument>,
-                    searchconfig: &Search) -> Result<()> {
+fn write_searchindex_to_json(
+    ctx: &RenderContext,
+    searchconfig: &Search,
+    index: elasticlunr::Index
+) -> Result<()> {
 
     // These structs mirror the configuration javascript object accepted by
     // http://elasticlunr.com/docs/configuration.js.html
@@ -715,32 +775,18 @@ fn make_searchindex(ctx: &RenderContext,
 
     }
 
-    let searchoptions = SearchOptions {
-        bool: if searchconfig.use_boolean_and { "AND".into() } else { "OR".into() },
-        expand: searchconfig.expand,
-        limit_results: searchconfig.limit_results,
-        teaser_word_count: searchconfig.teaser_word_count,
-        fields: SearchOptionsFields {
-            title: SearchOptionsField { boost: searchconfig.boost_title },
-            body: SearchOptionsField { boost: searchconfig.boost_paragraph },
-            breadcrumbs: SearchOptionsField { boost: searchconfig.boost_hierarchy },
-        }
-    };
-
     let json_contents = if searchconfig.enable {
-
-        let mut index = elasticlunr::Index::new(&["title", "body", "breadcrumbs"]);
-
-        for sd in search_documents {
-            // Concat the html link with the anchor ("abc.html#anchor")
-            let anchor = if let Some(s) = sd.anchor.1 {
-                format!("{}#{}", sd.anchor.0, &s)
-            } else {
-                sd.anchor.0
-            };
-
-            index.add_doc(&anchor, &[sd.title, sd.body, sd.hierarchy.join(" » ")]);
-        }
+        let searchoptions = SearchOptions {
+            bool: if searchconfig.use_boolean_and { "AND".into() } else { "OR".into() },
+            expand: searchconfig.expand,
+            limit_results: searchconfig.limit_results,
+            teaser_word_count: searchconfig.teaser_word_count,
+            fields: SearchOptionsFields {
+                title: SearchOptionsField { boost: searchconfig.boost_title },
+                body: SearchOptionsField { boost: searchconfig.boost_paragraph },
+                breadcrumbs: SearchOptionsField { boost: searchconfig.boost_hierarchy },
+            }
+        };
 
         SearchindexJson {
             enable: searchconfig.enable,
@@ -754,7 +800,6 @@ fn make_searchindex(ctx: &RenderContext,
             index: None,
         }
     };
-
 
     write_file(
         &ctx.destination,

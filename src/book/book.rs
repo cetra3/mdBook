@@ -152,15 +152,20 @@ pub struct Chapter {
     pub sub_items: Vec<BookItem>,
     /// The chapter's location, relative to the `SUMMARY.md` file.
     pub path: PathBuf,
+    /// An ordered list of the names of each chapter above this one, in the hierarchy.
+    pub parent_names: Vec<String>,
 }
 
 impl Chapter {
     /// Create a new chapter with the provided content.
-    pub fn new<P: Into<PathBuf>>(name: &str, content: String, path: P) -> Chapter {
+    pub fn new<P: Into<PathBuf>>(name: &str, content: String, path: P, parent_names: Vec<String>) 
+        -> Chapter 
+    {
         Chapter {
             name: name.to_string(),
             content: content,
             path: path.into(),
+            parent_names: parent_names,
             ..Default::default()
         }
     }
@@ -183,21 +188,27 @@ fn load_book_from_disk<P: AsRef<Path>>(summary: &Summary, src_dir: P) -> Result<
     let mut chapters = Vec::new();
 
     for summary_item in summary_items {
-        let chapter = load_summary_item(summary_item, src_dir)?;
+        let chapter = load_summary_item(summary_item, src_dir, Vec::new())?;
         chapters.push(chapter);
     }
 
     Ok(Book { sections: chapters })
 }
 
-fn load_summary_item<P: AsRef<Path>>(item: &SummaryItem, src_dir: P) -> Result<BookItem> {
+fn load_summary_item<P: AsRef<Path>>(item: &SummaryItem, src_dir: P, parent_names: Vec<String>) 
+    -> Result<BookItem> 
+{
     match *item {
         SummaryItem::Separator => Ok(BookItem::Separator),
-        SummaryItem::Link(ref link) => load_chapter(link, src_dir).map(|c| BookItem::Chapter(c)),
+        SummaryItem::Link(ref link) => {
+            load_chapter(link, src_dir, parent_names).map(|c| BookItem::Chapter(c))
+        },
     }
 }
 
-fn load_chapter<P: AsRef<Path>>(link: &Link, src_dir: P) -> Result<Chapter> {
+fn load_chapter<P: AsRef<Path>>(link: &Link, src_dir: P, parent_names: Vec<String>) 
+    -> Result<Chapter> 
+{
     debug!("Loading {} ({})", link.name, link.location.display());
     let src_dir = src_dir.as_ref();
 
@@ -218,12 +229,14 @@ fn load_chapter<P: AsRef<Path>>(link: &Link, src_dir: P) -> Result<Chapter> {
         .strip_prefix(&src_dir)
         .expect("Chapters are always inside a book");
 
-    let mut ch = Chapter::new(&link.name, content, stripped);
+    let mut sub_item_parents = parent_names.clone();
+    let mut ch = Chapter::new(&link.name, content, stripped, parent_names);
     ch.number = link.number.clone();
 
+    sub_item_parents.push(link.name.clone());
     let sub_items = link.nested_items
         .iter()
-        .map(|i| load_summary_item(i, src_dir))
+        .map(|i| load_summary_item(i, src_dir, sub_item_parents.clone()))
         .collect::<Result<Vec<_>>>()?;
 
     ch.sub_items = sub_items;
