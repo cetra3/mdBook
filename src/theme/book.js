@@ -779,7 +779,7 @@ var search = (function search() {
                 var json = JSON.parse(this.response);
 
                 if (json.enable == false) {
-                    searchicon.hide();
+                    searchicon.style.display = 'none';
                     return;
                 }
 
@@ -965,7 +965,7 @@ var search = (function search() {
         }
 
         // Display and scroll to results
-        searchresults_outer.style.display = '';
+        searchresults_outer.style.display = 'block';
     }
 
     init();
