@@ -892,9 +892,11 @@ var search = (function search() {
     function showSearchBar(yes) {
         if (yes) {
             searchbar_outer.style.display = 'block';
+            searchresults_outer.style.display = 'block';
             menu_title.style.display = 'none';
         } else {
             searchbar_outer.style.display = 'none';
+            searchresults_outer.style.display = 'none';
             menu_title.style.display = 'block';
         }
     }

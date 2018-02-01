@@ -130,11 +130,6 @@
                         <div id="menu-center">
                             <h1 id="menu-title">{{ book_title }}</h1>
 
-                            {{#if search}}
-                            <div id="searchbar-outer" class="searchbar-outer">
-                                <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ...">
-                            </div>
-                            {{/if}}
                         </div> 
 
                         <div class="right-buttons">
@@ -146,6 +141,9 @@
                 </div>
 
                 {{#if search}}
+                <div id="searchbar-outer" class="searchbar-outer">
+                                <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ...">
+                </div>
                 <div id="searchresults-outer" class="searchresults-outer">
                     <div class="searchresults-header" id="searchresults-header"></div>
                     <ul id="searchresults">

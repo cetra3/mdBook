@@ -1372,11 +1372,12 @@ html:not(.sidebar-visible) #menu-bar:not(:hover).folded > #menu-bar-sticky-conta
   display: none;
   margin-left: auto;
   margin-right: auto;
-  max-width: 500px;
+  max-width: 750px;
 }
+
 #searchbar {
   display: block;
-  width: 98%;
+  width: 100%;
   border-radius: 3px;
   margin: 5px auto 0px auto;
   padding: 10px 16px;
@@ -1393,6 +1394,9 @@ html:not(.sidebar-visible) #menu-bar:not(:hover).folded > #menu-bar-sticky-conta
 }
 .searchresults-outer {
   display: none;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 750px;
 }
 ul#searchresults {
   list-style: none;
