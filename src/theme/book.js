@@ -676,8 +676,6 @@ var search = (function search() {
             url.push("");
         }
 
-        console.log(path_to_root);
-
         return '<a href="'
                 + path_to_root
                 + url[0] + '?' + URL_MARK_PARAM + '=' + searchterms + '#' + url[1]
