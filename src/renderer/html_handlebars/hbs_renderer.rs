@@ -1,22 +1,35 @@
 use renderer::html_handlebars::helpers;
 use renderer::{RenderContext, Renderer};
 use book::{Book, BookItem, Chapter};
-use config::{Config, HtmlConfig, Playpen};
+use config::{Config, HtmlConfig, Playpen, Search};
 use {theme, utils};
 use theme::{playpen_editor, Theme};
 use errors::*;
 use regex::{Captures, Regex};
 
 #[allow(unused_imports)] use std::ascii::AsciiExt;
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+use elasticlunr;
 use handlebars::Handlebars;
-
 use serde_json;
+
+fn write_file<P: AsRef<Path>>(
+    build_dir: &Path,
+    filename: P,
+    content: &[u8],
+) -> Result<()> {
+    let path = build_dir.join(filename);
+
+    utils::fs::create_file(&path)?
+        .write_all(content)
+        .map_err(|e| e.into())
+}
 
 #[derive(Default)]
 pub struct HtmlHandlebars;
@@ -26,24 +39,12 @@ impl HtmlHandlebars {
         HtmlHandlebars
     }
 
-    fn write_file<P: AsRef<Path>>(
-        &self,
-        build_dir: &Path,
-        filename: P,
-        content: &[u8],
-    ) -> Result<()> {
-        let path = build_dir.join(filename);
-
-        utils::fs::create_file(&path)?
-            .write_all(content)
-            .map_err(|e| e.into())
-    }
-
     fn render_item(
         &self,
-                   item: &BookItem,
-                   mut ctx: RenderItemContext,
+        item: &BookItem,
+        mut ctx: RenderItemContext,
         print_content: &mut String,
+        search_index: &mut Option<elasticlunr::Index>,
     ) -> Result<()> {
         // FIXME: This should be made DRY-er and rely less on mutable state
         match *item {
@@ -56,11 +57,20 @@ impl HtmlHandlebars {
                 let path = ch.path
                     .to_str()
                     .chain_err(|| "Could not convert path to str")?;
+                let filepath = Path::new(&ch.path)
+                    .with_extension("html");
+                let filepath = filepath.to_str()
+                    .chain_err(|| "Could not convert HTML path to str")?;
 
                 // "print.html" is used for the print page.
                 if ch.path == Path::new("print.md") {
                     bail!(ErrorKind::ReservedFilenameError(ch.path.clone()));
                 };
+
+                // Add page content to search index
+                if let Some(ref mut index) = *search_index {
+                    add_chapter_to_searchindex(&ctx.html_config.search, &ch, &filepath, index);
+                }
 
                 // Non-lexical lifetimes needed :'(
                 let title: String;
@@ -83,15 +93,14 @@ impl HtmlHandlebars {
                 debug!("Render template");
                 let rendered = ctx.handlebars.render("index", &ctx.data)?;
 
-                let filepath = Path::new(&ch.path).with_extension("html");
                 let rendered = self.post_process(
                     rendered,
                     &ctx.html_config.playpen,
                 );
 
                 // Write to file
-                debug!("Creating {} ✓", filepath.display());
-                self.write_file(&ctx.destination, filepath, &rendered.into_bytes())?;
+                debug!("Creating {} ✓", filepath);
+                write_file(&ctx.destination, filepath, &rendered.into_bytes())?;
 
                 if ctx.is_index {
                     self.render_index(ch, &ctx.destination)?;
@@ -112,7 +121,7 @@ impl HtmlHandlebars {
         File::open(destination.join(&ch.path.with_extension("html")))?
             .read_to_string(&mut content)?;
 
-        self.write_file(destination, "index.html", content.as_bytes())?;
+        write_file(destination, "index.html", content.as_bytes())?;
 
         debug!(
             "Creating index.html from {} ✓",
@@ -140,45 +149,45 @@ impl HtmlHandlebars {
         theme: &Theme,
         html_config: &HtmlConfig,
     ) -> Result<()> {
-        self.write_file(destination, "book.js", &theme.js)?;
-        self.write_file(destination, "book.css", &theme.css)?;
-        self.write_file(destination, "favicon.png", &theme.favicon)?;
-        self.write_file(destination, "highlight.css", &theme.highlight_css)?;
-        self.write_file(destination, "tomorrow-night.css", &theme.tomorrow_night_css)?;
-        self.write_file(destination, "ayu-highlight.css", &theme.ayu_highlight_css)?;
-        self.write_file(destination, "highlight.js", &theme.highlight_js)?;
-        self.write_file(destination, "clipboard.min.js", &theme.clipboard_js)?;
-        self.write_file(
+        write_file(destination, "book.js", &theme.js)?;
+        write_file(destination, "book.css", &theme.css)?;
+        write_file(destination, "favicon.png", &theme.favicon)?;
+        write_file(destination, "highlight.css", &theme.highlight_css)?;
+        write_file(destination, "tomorrow-night.css", &theme.tomorrow_night_css)?;
+        write_file(destination, "ayu-highlight.css", &theme.ayu_highlight_css)?;
+        write_file(destination, "highlight.js", &theme.highlight_js)?;
+        write_file(destination, "clipboard.min.js", &theme.clipboard_js)?;
+        write_file(
             destination,
             "_FontAwesome/css/font-awesome.css",
             theme::FONT_AWESOME,
         )?;
-        self.write_file(
+        write_file(
             destination,
             "_FontAwesome/fonts/fontawesome-webfont.eot",
             theme::FONT_AWESOME_EOT,
         )?;
-        self.write_file(
+        write_file(
             destination,
             "_FontAwesome/fonts/fontawesome-webfont.svg",
             theme::FONT_AWESOME_SVG,
         )?;
-        self.write_file(
+        write_file(
             destination,
             "_FontAwesome/fonts/fontawesome-webfont.ttf",
             theme::FONT_AWESOME_TTF,
         )?;
-        self.write_file(
+        write_file(
             destination,
             "_FontAwesome/fonts/fontawesome-webfont.woff",
             theme::FONT_AWESOME_WOFF,
         )?;
-        self.write_file(
+        write_file(
             destination,
             "_FontAwesome/fonts/fontawesome-webfont.woff2",
             theme::FONT_AWESOME_WOFF2,
         )?;
-        self.write_file(
+        write_file(
             destination,
             "_FontAwesome/fonts/FontAwesome.ttf",
             theme::FONT_AWESOME_TTF,
@@ -190,11 +199,11 @@ impl HtmlHandlebars {
         if playpen_config.editable {
             // Load the editor
             let editor = playpen_editor::PlaypenEditor::new(&playpen_config.editor);
-            self.write_file(destination, "editor.js", &editor.js)?;
-            self.write_file(destination, "ace.js", &editor.ace_js)?;
-            self.write_file(destination, "mode-rust.js", &editor.mode_rust_js)?;
-            self.write_file(destination, "theme-dawn.js", &editor.theme_dawn_js)?;
-            self.write_file(destination,
+            write_file(destination, "editor.js", &editor.js)?;
+            write_file(destination, "ace.js", &editor.ace_js)?;
+            write_file(destination, "mode-rust.js", &editor.mode_rust_js)?;
+            write_file(destination, "theme-dawn.js", &editor.theme_dawn_js)?;
+            write_file(destination,
                 "theme-tomorrow_night.js",
                 &editor.theme_tomorrow_night_js,
             )?;
@@ -291,18 +300,35 @@ impl Renderer for HtmlHandlebars {
         // Print version
         let mut print_content = String::new();
 
+        // Search index
+        let mut search_index = None;
+        if html_config.search.enable {
+            search_index = Some(elasticlunr::Index::new(&["title", "body", "breadcrumbs"]));
+        }
+
         fs::create_dir_all(&destination)
             .chain_err(|| "Unexpected error when constructing destination path")?;
 
-        for (i, item) in book.iter().enumerate() {
+        let mut depthfirstiterator = book.iter();
+        let mut is_index = true;
+        while let Some(item) = depthfirstiterator.next() {
             let ctx = RenderItemContext {
                 handlebars: &handlebars,
                 destination: destination.to_path_buf(),
                 data: data.clone(),
-                is_index: i == 0,
+                is_index: is_index,
                 html_config: html_config.clone(),
             };
-            self.render_item(item, ctx, &mut print_content)?;
+            self.render_item(item,
+                             ctx,
+                             &mut print_content,
+                             &mut search_index)?;
+            is_index = false;
+        }
+
+        // Search index
+        if let Some(index) = search_index {
+            write_searchindex_to_json(ctx, &html_config.search, index)?;
         }
 
         // Print version
@@ -319,7 +345,7 @@ impl Renderer for HtmlHandlebars {
         let rendered = self.post_process(rendered,
                                          &html_config.playpen);
 
-        self.write_file(&destination, "print.html", &rendered.into_bytes())?;
+        write_file(&destination, "print.html", &rendered.into_bytes())?;
         debug!("Creating print.html ✓");
 
         debug!("Copy static files");
@@ -400,6 +426,8 @@ fn make_data(root: &Path, book: &Book, config: &Config, html_config: &HtmlConfig
         data.insert("theme_tomorrow_night_js".to_owned(),
                     json!("theme-tomorrow_night.js"));
     }
+
+    data.insert("search".to_owned(), json!(html.search.enable));
 
     let mut chapters = vec![];
 
@@ -520,8 +548,7 @@ fn fix_code_blocks(html: &str) -> String {
                 before = before,
                 classes = classes,
                 after = after)
-    })
-         .into_owned()
+    }).into_owned()
 }
 
 fn add_playpen_pre(html: &str, playpen_config: &Playpen) -> String {
@@ -602,6 +629,149 @@ pub fn normalize_id(content: &str) -> String {
            .collect::<String>()
 }
 
+/// Renders markdown into flat unformatted text for usage in the search index.
+pub fn add_chapter_to_searchindex(
+    searchconfig: &Search,
+    chapter: &Chapter,
+    anchor_base: &str,
+    index: &mut elasticlunr::Index,
+) {
+    use pulldown_cmark::*;
+
+    let mut opts = Options::empty();
+    opts.insert(OPTION_ENABLE_TABLES);
+    opts.insert(OPTION_ENABLE_FOOTNOTES);
+    let p = Parser::new_ext(&chapter.content, opts);
+
+    let mut in_header = false;
+    let max_paragraph_level = searchconfig.split_until_heading as i32;
+    let mut paragraph_id = None;
+    let mut heading = String::new();
+    let mut body = String::new();
+    let mut breadcrumbs = chapter.parent_names.clone();
+
+    for event in p {
+        match event {
+            Event::Start(Tag::Header(i)) if i <= max_paragraph_level => {
+                if heading.len() > 0 {
+                    // Paragraph finished, the next header is following now
+                    // Write the data to the index, and clear it for the next paragraph
+                    let doc_ref = if let Some(id) = paragraph_id {
+                        Cow::Owned(format!("{}#{}", anchor_base, id))
+                    } else {
+                        Cow::Borrowed(anchor_base)
+                    };
+                    index.add_doc(&doc_ref, &[&heading, &body, &breadcrumbs.join(" » ")]);
+                    paragraph_id = None;
+                    heading.clear();
+                    body.clear();
+                    breadcrumbs.pop();
+                }
+
+                in_header = true;
+            }
+            Event::End(Tag::Header(i)) if i <= max_paragraph_level => {
+                in_header = false;
+                paragraph_id = Some(id_from_content(&heading));
+
+                breadcrumbs.push(heading.clone());
+            }
+            Event::Start(_) | Event::End(_) => {}
+            Event::Text(text) => {
+                if in_header {
+                    heading.push_str(&text);
+                } else {
+                    body.push_str(&text);
+                }
+            }
+            Event::Html(html) | Event::InlineHtml(html) => {
+                body.push_str(&utils::remove_html_tags(&html));
+            }
+            Event::FootnoteReference(_) => {}
+            Event::SoftBreak | Event::HardBreak => {}
+        }
+    }
+}
+
+/// Uses elasticlunr to create a search index and exports that into `searchindex.json`.
+fn write_searchindex_to_json(
+    ctx: &RenderContext,
+    searchconfig: &Search,
+    index: elasticlunr::Index
+) -> Result<()> {
+
+    // These structs mirror the configuration javascript object accepted by
+    // http://elasticlunr.com/docs/configuration.js.html
+
+    #[derive(Serialize)]
+    struct SearchOptionsField {
+        boost: u8,
+    }
+
+    #[derive(Serialize)]
+    struct SearchOptionsFields {
+        title: SearchOptionsField,
+        body: SearchOptionsField,
+        breadcrumbs: SearchOptionsField,
+    }
+
+    #[derive(Serialize)]
+    struct SearchOptions {
+        bool: String,
+        expand: bool,
+        limit_results: u32,
+        teaser_word_count: u32,
+        fields: SearchOptionsFields,
+    }
+
+    #[derive(Serialize)]
+    struct SearchindexJson {
+        /// Propagate the search enabled/disabled setting to the html page
+        enable: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        /// The searchoptions for elasticlunr.js
+        searchoptions: Option<SearchOptions>,
+        /// The index for elasticlunr.js
+        #[serde(skip_serializing_if = "Option::is_none")]
+        index: Option<elasticlunr::Index>,
+
+    }
+
+    let json_contents = if searchconfig.enable {
+        let searchoptions = SearchOptions {
+            bool: if searchconfig.use_boolean_and { "AND".into() } else { "OR".into() },
+            expand: searchconfig.expand,
+            limit_results: searchconfig.limit_results,
+            teaser_word_count: searchconfig.teaser_word_count,
+            fields: SearchOptionsFields {
+                title: SearchOptionsField { boost: searchconfig.boost_title },
+                body: SearchOptionsField { boost: searchconfig.boost_paragraph },
+                breadcrumbs: SearchOptionsField { boost: searchconfig.boost_hierarchy },
+            }
+        };
+
+        SearchindexJson {
+            enable: searchconfig.enable,
+            searchoptions: Some(searchoptions),
+            index: Some(index),
+        }
+    } else {
+        SearchindexJson {
+            enable: false,
+            searchoptions: None,
+            index: None,
+        }
+    };
+
+    write_file(
+        &ctx.destination,
+        "searchindex.json",
+        &serde_json::to_string(&json_contents).unwrap().as_bytes(),
+    )?;
+    debug!("Creating \"searchindex.json\" ✓");
+
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {

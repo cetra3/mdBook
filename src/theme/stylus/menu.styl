@@ -27,15 +27,17 @@ html:not(.sidebar-visible) #menu-bar:not(:hover).folded > #menu-bar-sticky-conta
     transform: translateY(-60px);
 }
 
-.menu-title {
-    display: inline-block
+#menu-center {
+    display: block
+    margin: 0
+    flex: 1    
+}
+
+#menu-title {
     font-weight: 200
     font-size: 20px
-    line-height: 50px
     text-align: center
-    margin: 0
-    flex: 1
+    text-overflow: ellipsis
     white-space: nowrap
     overflow: hidden
-    text-overflow: ellipsis
 }

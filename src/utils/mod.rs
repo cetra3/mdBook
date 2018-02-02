@@ -7,9 +7,15 @@ use regex::Regex;
 
 use pulldown_cmark::{html, Event, Options, Parser, Tag, OPTION_ENABLE_FOOTNOTES,
                      OPTION_ENABLE_TABLES};
+
 use std::borrow::Cow;
 
 pub use self::string::{RangeArgument, take_lines};
+
+pub fn remove_html_tags<'a>(text: &'a str) -> Cow<'a, str> {
+    let regex = Regex::new(r"<[^>]*?>").unwrap();
+    regex.replace_all(text, "")
+}
 
 /// Wrapper around the pulldown-cmark parser for rendering markdown to HTML.
 pub fn render_markdown(text: &str, curly_quotes: bool) -> String {

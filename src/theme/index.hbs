@@ -32,6 +32,25 @@
         <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
         {{/if}}
 
+        {{#if search}}
+        <!-- Fetch elasticlunr.js from CDN but have a local fallback -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/elasticlunr/0.9.6/elasticlunr.min.js"></script>
+        <script>
+            if (typeof elasticlunr == 'undefined') {
+                document.write(unescape("%3Cscript src='elasticlunr.min.js'%3E%3C/script%3E"));
+            }
+            var path_to_root = "{{path_to_root}}";
+        </script>
+
+        <!-- Fetch mark.js from CDN but have a local fallback -->
+        <script src="https://cdn.jsdelivr.net/npm/mark.js@8.11.0/dist/mark.min.js"></script>
+        <script>
+            if (typeof Mark == 'undefined') {
+                document.write(unescape("%3Cscript src='mark.min.js'%3E%3C/script%3E"));
+            }
+        </script>
+        {{/if}}
+
         <!-- Fetch Clipboard.js from CDN but have a local fallback -->
         <script src="https://cdn.jsdelivr.net/clipboard.js/1.6.1/clipboard.min.js"></script>
         <script>
@@ -101,9 +120,17 @@
                                 <li><button class="theme" id="navy">Navy</button></li>
                                 <li><button class="theme" id="ayu">Ayu</button></li>
                             </ul>
+                            {{#if search}}
+                            <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-controls="searchbar-outer">
+                                <i class="fa fa-search"></i>
+                            </button>
+                            {{/if}}
                         </div>
 
-                        <h1 class="menu-title">{{ book_title }}</h1>
+                        <div id="menu-center">
+                            <h1 id="menu-title">{{ book_title }}</h1>
+
+                        </div> 
 
                         <div class="right-buttons">
                             <a href="print.html" title="Print this book" aria-label="Print this book">
@@ -112,6 +139,17 @@
                         </div>
                     </div>
                 </div>
+
+                {{#if search}}
+                <div id="searchbar-outer" class="searchbar-outer">
+                                <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ...">
+                </div>
+                <div id="searchresults-outer" class="searchresults-outer">
+                    <div class="searchresults-header" id="searchresults-header"></div>
+                    <ul id="searchresults">
+                    </ul>
+                </div>
+                {{/if}}
 
                 <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
                 <script type="text/javascript">

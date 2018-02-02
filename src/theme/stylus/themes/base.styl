@@ -84,7 +84,10 @@
         background-color: $sidebar-bg
     }
 
-    .content a:link, a:visited, a > .hljs {
+    #searchresults a,
+    .content a:link,
+    a:visited,
+    a > .hljs {
         color: $links
     }
 
@@ -187,5 +190,36 @@
 
     ::-webkit-scrollbar-thumb {
         background: $scrollbar;
+    }
+
+    /* Search */
+    #searchbar {
+        border: 1px solid $table-border-color;
+        background-color: $sidebar-bg;
+
+        &:focus, &.active {
+            box-shadow: 0 0 3px $search-box-shadow;
+        }
+    }
+
+    .searchresults-header {
+        color: $fg;
+    }
+
+    .searchresults-outer {
+        border-bottom-color: $table-border-color;
+        border-bottom: 1px dashed $icons;
+    }
+
+    ul#searchresults li.focus {
+        background-color: saturation(lighten($sidebar-active, 40%), 50%);
+    }
+
+    .breadcrumbs {
+        color: $icons;
+    }
+
+    mark {
+        background-color: lighten($links, 20%);
     }
 }
