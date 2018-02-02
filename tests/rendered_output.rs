@@ -83,12 +83,11 @@ fn check_correct_cross_links_in_nested_dir() {
 
     let first = temp.path().join("book").join("first");
     let links = vec![
-        r#"<base href="../">"#,
-        r#"href="intro.html""#,
-        r#"href="first/index.html""#,
-        r#"href="first/nested.html""#,
-        r#"href="second.html""#,
-        r#"href="conclusion.html""#,
+        r#"href="../intro.html""#,
+        r#"href="../first/index.html""#,
+        r#"href="../first/nested.html""#,
+        r#"href="../second.html""#,
+        r#"href="../conclusion.html""#,
     ];
 
     let files_in_nested_dir = vec!["index.html", "nested.html"];

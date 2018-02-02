@@ -21,6 +21,7 @@ pub fn render_markdown(text: &str, curly_quotes: bool) -> String {
     let p = Parser::new_ext(text, opts);
     let mut converter = EventQuoteConverter::new(curly_quotes);
     let events = p.map(clean_codeblock_headers)
+                  .map(adjust_links)
                   .map(|event| converter.convert(event));
 
     html::push_html(&mut s, events);
@@ -60,6 +61,22 @@ impl EventQuoteConverter {
             _ => event,
         }
     }
+}
+
+// Adjusts links so that local markdown links are converted to html
+fn adjust_links(event: Event) -> Event {
+    match event {
+        Event::Start(Tag::Link(dest, title)) => {
+            if dest.ends_with(".md") && !dest.starts_with("http://") && !dest.starts_with("https://") {
+                let html_link = [&dest[..dest.len() - 3], ".html"].concat();
+
+                return Event::Start(Tag::Link(Cow::from(html_link), title))
+            }
+            Event::Start(Tag::Link(dest, title))
+        },
+        _ => event
+    }
+
 }
 
 fn clean_codeblock_headers(event: Event) -> Event {
@@ -118,6 +135,16 @@ pub fn log_backtrace(e: &Error) {
 mod tests {
     mod render_markdown {
         use super::super::render_markdown;
+
+        #[test]
+        fn preserves_external_links() {
+            assert_eq!(render_markdown("[example](https://www.rust-lang.org/)", false), "<p><a href=\"https://www.rust-lang.org/\">example</a></p>\n");
+        }
+
+        #[test]
+        fn it_can_adjust_markdown_links() {
+            assert_eq!(render_markdown("[example](example.md)", false), "<p><a href=\"example.html\">example</a></p>\n");
+        }
 
         #[test]
         fn it_can_keep_quotes_straight() {

@@ -5,6 +5,8 @@ use serde_json;
 use handlebars::{Handlebars, Helper, HelperDef, RenderContext, RenderError};
 use pulldown_cmark::{html, Event, Parser, Tag};
 
+use utils;
+
 // Handlebars helper to construct TOC
 #[derive(Clone, Copy)]
 pub struct RenderToc {
@@ -66,6 +68,7 @@ impl HelperDef for RenderToc {
 
             // Link
             let path_exists = if let Some(path) = item.get("path") {
+
                 if !path.is_empty() {
                     rc.writer.write_all(b"<a href=\"")?;
 
@@ -77,6 +80,7 @@ impl HelperDef for RenderToc {
                         .replace("\\", "/");
 
                     // Add link
+                    rc.writer.write_all(&utils::fs::path_to_root(&current).as_bytes())?;
                     rc.writer.write_all(tmp.as_bytes())?;
                     rc.writer.write_all(b"\"")?;
 
