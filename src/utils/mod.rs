@@ -3,6 +3,7 @@
 pub mod fs;
 mod string;
 use errors::Error;
+use regex::Regex;
 
 use pulldown_cmark::{html, Event, Options, Parser, Tag, OPTION_ENABLE_FOOTNOTES,
                      OPTION_ENABLE_TABLES};
@@ -65,13 +66,27 @@ impl EventQuoteConverter {
 
 // Adjusts links so that local markdown links are converted to html
 fn adjust_links(event: Event) -> Event {
+
+    lazy_static! {
+        static ref HTTP_LINK: Regex = Regex::new("^https?://").unwrap();
+        static ref MD_LINK: Regex = Regex::new("(?P<link>.*).md(?P<anchor>#.*)?").unwrap();
+    }
+
     match event {
         Event::Start(Tag::Link(dest, title)) => {
-            if dest.ends_with(".md") && !dest.starts_with("http://") && !dest.starts_with("https://") {
-                let html_link = [&dest[..dest.len() - 3], ".html"].concat();
+            if !HTTP_LINK.is_match(&dest) {
+                if let Some(caps) = MD_LINK.captures(&dest) {
 
-                return Event::Start(Tag::Link(Cow::from(html_link), title))
+                    let mut html_link = [&caps["link"], ".html"].concat();
+
+                    if let Some(anchor) = caps.name("anchor") {
+                        html_link.push_str(anchor.as_str());
+                    }
+
+                    return Event::Start(Tag::Link(Cow::from(html_link), title))
+                }
             }
+
             Event::Start(Tag::Link(dest, title))
         },
         _ => event
@@ -144,6 +159,7 @@ mod tests {
         #[test]
         fn it_can_adjust_markdown_links() {
             assert_eq!(render_markdown("[example](example.md)", false), "<p><a href=\"example.html\">example</a></p>\n");
+            assert_eq!(render_markdown("[example_anchor](example.md#anchor)", false), "<p><a href=\"example.html#anchor\">example_anchor</a></p>\n");
         }
 
         #[test]

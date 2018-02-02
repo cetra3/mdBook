@@ -86,9 +86,6 @@ impl HtmlHandlebars {
                 let filepath = Path::new(&ch.path).with_extension("html");
                 let rendered = self.post_process(
                     rendered,
-                    &normalize_path(filepath.to_str().ok_or_else(|| {
-                        Error::from(format!("Bad file name: {}", filepath.display()))
-                    })?),
                     &ctx.html_config.playpen,
                 );
 
@@ -115,14 +112,6 @@ impl HtmlHandlebars {
         File::open(destination.join(&ch.path.with_extension("html")))?
             .read_to_string(&mut content)?;
 
-        // This could cause a problem when someone displays
-        // code containing <base href=...>
-        // on the front page, however this case should be very very rare...
-        content = content.lines()
-                         .filter(|line| !line.contains("<base href="))
-                         .collect::<Vec<&str>>()
-                         .join("\n");
-
         self.write_file(destination, "index.html", content.as_bytes())?;
 
         debug!(
@@ -136,11 +125,9 @@ impl HtmlHandlebars {
     #[cfg_attr(feature = "cargo-clippy", allow(let_and_return))]
     fn post_process(&self,
                     rendered: String,
-                    filepath: &str,
                     playpen_config: &Playpen)
                     -> String {
-        let rendered = build_header_links(&rendered, filepath);
-        let rendered = fix_anchor_links(&rendered, filepath);
+        let rendered = build_header_links(&rendered);
         let rendered = fix_code_blocks(&rendered);
         let rendered = add_playpen_pre(&rendered, playpen_config);
 
@@ -330,7 +317,6 @@ impl Renderer for HtmlHandlebars {
         let rendered = handlebars.render("index", &data)?;
 
         let rendered = self.post_process(rendered,
-                                         "print.html",
                                          &html_config.playpen);
 
         self.write_file(&destination, "print.html", &rendered.into_bytes())?;
@@ -449,7 +435,7 @@ fn make_data(root: &Path, book: &Book, config: &Config, html_config: &HtmlConfig
 
 /// Goes through the rendered HTML, making sure all header tags are wrapped in
 /// an anchor so people can link to sections directly.
-fn build_header_links(html: &str, filepath: &str) -> String {
+fn build_header_links(html: &str) -> String {
     let regex = Regex::new(r"<h(\d)>(.*?)</h\d>").unwrap();
     let mut id_counter = HashMap::new();
 
@@ -457,7 +443,7 @@ fn build_header_links(html: &str, filepath: &str) -> String {
         let level = caps[1].parse()
                            .expect("Regex should ensure we only ever get numbers here");
 
-        wrap_header_with_link(level, &caps[2], &mut id_counter, filepath)
+        wrap_header_with_link(level, &caps[2], &mut id_counter)
     })
          .into_owned()
 }
@@ -466,8 +452,7 @@ fn build_header_links(html: &str, filepath: &str) -> String {
 /// unique ID by appending an auto-incremented number (if necessary).
 fn wrap_header_with_link(level: usize,
                          content: &str,
-                         id_counter: &mut HashMap<String, usize>,
-                         filepath: &str)
+                         id_counter: &mut HashMap<String, usize>)
                          -> String {
     let raw_id = id_from_content(content);
 
@@ -481,11 +466,10 @@ fn wrap_header_with_link(level: usize,
     *id_count += 1;
 
     format!(
-        r##"<a class="header" href="{filepath}#{id}" id="{id}"><h{level}>{text}</h{level}></a>"##,
+        r##"<a class="header" href="#{id}" id="{id}"><h{level}>{text}</h{level}></a>"##,
         level = level,
         id = id,
-        text = content,
-        filepath = filepath
+        text = content
     )
 }
 
@@ -514,25 +498,6 @@ fn id_from_content(content: &str) -> String {
     let trimmed = content.trim().trim_left_matches('#').trim();
 
     normalize_id(trimmed)
-}
-
-// anchors to the same page (href="#anchor") do not work because of
-// <base href="../"> pointing to the root folder. This function *fixes*
-// that in a very inelegant way
-fn fix_anchor_links(html: &str, filepath: &str) -> String {
-    let regex = Regex::new(r##"<a([^>]+)href="#([^"]+)"([^>]*)>"##).unwrap();
-    regex.replace_all(html, |caps: &Captures| {
-        let before = &caps[1];
-        let anchor = &caps[2];
-        let after = &caps[3];
-
-        format!("<a{before}href=\"{filepath}#{anchor}\"{after}>",
-                before = before,
-                filepath = filepath,
-                anchor = anchor,
-                after = after)
-    })
-         .into_owned()
 }
 
 
@@ -624,12 +589,6 @@ struct RenderItemContext<'a> {
     html_config: HtmlConfig,
 }
 
-pub fn normalize_path(path: &str) -> String {
-    use std::path::is_separator;
-    path.chars()
-        .map(|ch| if is_separator(ch) { '/' } else { ch })
-        .collect::<String>()
-}
 
 pub fn normalize_id(content: &str) -> String {
     content.chars()
@@ -653,37 +612,32 @@ mod tests {
         let inputs = vec![
             (
                 "blah blah <h1>Foo</h1>",
-                r##"blah blah <a class="header" href="./some_chapter/some_section.html#foo" id="foo"><h1>Foo</h1></a>"##,
+                r##"blah blah <a class="header" href="#foo" id="foo"><h1>Foo</h1></a>"##,
             ),
             (
                 "<h1>Foo</h1>",
-                r##"<a class="header" href="./some_chapter/some_section.html#foo" id="foo"><h1>Foo</h1></a>"##,
+                r##"<a class="header" href="#foo" id="foo"><h1>Foo</h1></a>"##,
             ),
             (
                 "<h3>Foo^bar</h3>",
-                r##"<a class="header" href="./some_chapter/some_section.html#foobar" id="foobar"><h3>Foo^bar</h3></a>"##,
+                r##"<a class="header" href="#foobar" id="foobar"><h3>Foo^bar</h3></a>"##,
             ),
             (
                 "<h4></h4>",
-                r##"<a class="header" href="./some_chapter/some_section.html#" id=""><h4></h4></a>"##,
+                r##"<a class="header" href="#" id=""><h4></h4></a>"##,
             ),
             (
                 "<h4><em>Hï</em></h4>",
-                r##"<a class="header" href="./some_chapter/some_section.html#hï" id="hï"><h4><em>Hï</em></h4></a>"##,
+                r##"<a class="header" href="#hï" id="hï"><h4><em>Hï</em></h4></a>"##,
             ),
             (
                 "<h1>Foo</h1><h3>Foo</h3>",
-                r##"<a class="header" href="./some_chapter/some_section.html#foo" id="foo"><h1>Foo</h1></a><a class="header" href="./some_chapter/some_section.html#foo-1" id="foo-1"><h3>Foo</h3></a>"##,
+                r##"<a class="header" href="#foo" id="foo"><h1>Foo</h1></a><a class="header" href="#foo-1" id="foo-1"><h3>Foo</h3></a>"##,
             ),
         ];
 
         for (src, should_be) in inputs {
-            let filepath = "./some_chapter/some_section.html";
-            let got = build_header_links(&src, filepath);
-            assert_eq!(got, should_be);
-
-            // This is redundant for most cases
-            let got = fix_anchor_links(&got, filepath);
+            let got = build_header_links(&src);
             assert_eq!(got, should_be);
         }
     }
